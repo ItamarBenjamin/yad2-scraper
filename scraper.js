@@ -21,21 +21,31 @@ const scrapeItemsAndExtractImgUrls = async (url) => {
     if (!yad2Html) {
         throw new Error("Could not get Yad2 response");
     }
+    // const fs = require('fs');
+    // const yad2Html = fs.readFileSync('testhtml.html', 'utf-8');
     const $ = cheerio.load(yad2Html);
     const title = $("title")
     const titleText = title.first().text();
     if (titleText === "ShieldSquare Captcha") {
         throw new Error("Bot detection");
     }
-    const $feedItems = $(".feeditem").find(".pic");
+    const $feedItems = $('[class^="feed-item-base_feedItemBox"]');
     if (!$feedItems) {
         throw new Error("Could not find feed items");
     }
+    console.log($feedItems.length, "items found");
+
     const imageUrls = []
     $feedItems.each((_, elm) => {
         const imgSrc = $(elm).find("img").attr('src');
+        const itemLink = $(elm).find("a").attr('href');
+        const marketingText = $(elm).find('[class^="feed-item-info_marketingText"]').text();
+        const yearAndHand = $(elm).find('[class^="feed-item-info_yearAndHandBox"]').text();
+        const price = $(elm).find('[class^="price_price"]').text();
         if (imgSrc) {
-            imageUrls.push(imgSrc)
+            const tuple = [imgSrc, "https://www.yad2.co.il/vehicles/" + itemLink, marketingText, yearAndHand, price];
+            imageUrls.push(tuple)
+            console.log(tuple);
         }
     })
     return imageUrls;
@@ -58,12 +68,12 @@ const checkIfHasNewItem = async (imgUrls, topic) => {
     let shouldUpdateFile = false;
     savedUrls = savedUrls.filter(savedUrl => {
         shouldUpdateFile = true;
-        return imgUrls.includes(savedUrl);
+        return imgUrls.map(a => a[0]).includes(savedUrl);
     });
     const newItems = [];
     imgUrls.forEach(url => {
-        if (!savedUrls.includes(url)) {
-            savedUrls.push(url);
+        if (!savedUrls.includes(url[0])) {
+            savedUrls.push(url[0]);
             newItems.push(url);
             shouldUpdateFile = true;
         }
@@ -80,27 +90,43 @@ const createPushFlagForWorkflow = () => {
     fs.writeFileSync("push_me", "")
 }
 
+const sendText = (telenode, msg) => {
+    console.log(`Sending message: ${msg}`);
+    const chatId = process.env.CHAT_ID || config.chatId;
+    telenode.sendTextMessage(msg, chatId);
+}
+
 const scrape = async (topic, url) => {
     const apiToken = process.env.API_TOKEN || config.telegramApiToken;
-    const chatId = process.env.CHAT_ID || config.chatId;
     const telenode = new Telenode({apiToken})
     try {
-        await telenode.sendTextMessage(`Starting scanning ${topic} on link:\n${url}`, chatId)
+        await sendText(telenode, `Starting scanning ${topic} on link:\n${url}`)
         const scrapeImgResults = await scrapeItemsAndExtractImgUrls(url);
         const newItems = await checkIfHasNewItem(scrapeImgResults, topic);
         if (newItems.length > 0) {
-            const newItemsJoined = newItems.join("\n----------\n");
-            const msg = `${newItems.length} new items:\n${newItemsJoined}`
-            await telenode.sendTextMessage(msg, chatId);
+            for (const item of newItems) {
+                const imgUrl = item[0];
+                const itemLink = item[1];
+                const marketingText = item[2];
+                const yearAndHand = item[3];
+                const price = item[4];
+                const message = `Hi there! I found a new item for you on Yad2:\n\n
+                ${marketingText}\n
+                ${yearAndHand}\n
+                ${price}\n
+                Image Link: ${imgUrl}\n\n
+                Item Link: ${itemLink}`;
+                await sendText(telenode, message);
+            }
         } else {
-            await telenode.sendTextMessage("No new items were added", chatId);
+            await sendText(telenode, "No new items were found... 😢");
         }
     } catch (e) {
         let errMsg = e?.message || "";
         if (errMsg) {
             errMsg = `Error: ${errMsg}`
         }
-        await telenode.sendTextMessage(`Scan workflow failed... 😥\n${errMsg}`, chatId)
+        await sendText(telenode, `Scan workflow failed... 😥\n${errMsg}`)
         throw new Error(e)
     }
 }
