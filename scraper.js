@@ -99,8 +99,7 @@ const sendText = (telenode, msg) => {
 const scrape = async (topic, url) => {
     const apiToken = process.env.API_TOKEN || config.telegramApiToken;
     const telenode = new Telenode({apiToken})
-    try {
-        await sendText(telenode, `Starting scanning ${topic} on link:\n${url}`)
+    try {        
         const scrapeImgResults = await scrapeItemsAndExtractImgUrls(url);
         const newItems = await checkIfHasNewItem(scrapeImgResults, topic);
         if (newItems.length > 0) {
@@ -118,8 +117,6 @@ const scrape = async (topic, url) => {
                 Item Link: ${itemLink}`;
                 await sendText(telenode, message);
             }
-        } else {
-            await sendText(telenode, "No new items were found... 😢");
         }
     } catch (e) {
         let errMsg = e?.message || "";
